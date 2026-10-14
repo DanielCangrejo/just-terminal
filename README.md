@@ -2,7 +2,7 @@
 
 # PSExplorer
 
-**A modern terminal for Windows, built with Tauri 2 + React + Rust**
+**A modern terminal for Windows, Linux and macOS, built with Tauri 2 + React + Rust**
 
 [![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%202-24C8D8?style=flat-square&logo=tauri)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)](https://react.dev)
@@ -18,14 +18,14 @@
 
 PSExplorer replaces the three-app dance of Windows Terminal + File Explorer + VS Code (as file navigator). It's a single lightweight window that combines a real native PowerShell terminal with an integrated file explorer, Git graph, and session management.
 
-No emulation. No compromise. Full ConPTY with ANSI/VT100 support.
+No emulation. No compromise. Full ConPTY with ANSI/VT100 support on Windows, and a native PTY running your own shell (zsh, bash, fish, pwsh) on Linux and macOS.
 
 ---
 
 ## Features
 
 ### Terminal
-- **Native PTY** — Real PowerShell, CMD, Git Bash, WSL processes via ConPTY
+- **Native PTY** — Real PowerShell, CMD, Git Bash, WSL processes via ConPTY on Windows; your login shell plus zsh, bash, fish or pwsh on Linux and macOS
 - **Multi-tab** — Open unlimited terminals, each with its own shell, CWD, and history
 - **Vertical tab bar** — Tabs on the left panel with folder name display
 - **Tab management** — Pin to top, rename, drag to reorder, right-click context menu
@@ -85,12 +85,35 @@ No emulation. No compromise. Full ConPTY with ANSI/VT100 support.
 
 ### Prerequisites
 
-- Windows 10 (build 1903+) or Windows 11
-- [Rust](https://rustup.rs) — `stable-x86_64-pc-windows-msvc`
+All platforms:
+
+- [Rust](https://rustup.rs) stable
 - [Node.js](https://nodejs.org) 18+ and [pnpm](https://pnpm.io)
+
+**Windows** 10 (build 1903+) or 11:
+
+- Rust toolchain `stable-x86_64-pc-windows-msvc`
 - [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with **Desktop development with C++** workload
 
 > PowerShell 7 (`pwsh.exe`) is optional but recommended. The app falls back to Windows PowerShell 5.1 if not found.
+
+**Linux** (Debian/Ubuntu; for other distros see [Tauri prerequisites](https://tauri.app/start/prerequisites/#linux)):
+
+```bash
+sudo apt update
+sudo apt install -y build-essential curl wget file pkg-config libssl-dev \
+  libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+> **WSL2:** works on Windows 11 / Windows 10 with WSLg (GUI apps). Build and run from inside WSL; keep the repo in the Linux filesystem (`~/…`), not under `/mnt/c`, or builds and the file watcher will be very slow.
+
+**macOS** 11+:
+
+```bash
+xcode-select --install
+```
+
+The default shell is your login shell (`$SHELL`). zsh, bash and fish report their working directory to the file explorer through small startup scripts that load your own `~/.zshrc` / `~/.bashrc` first, so your prompt, aliases and PATH stay as they are.
 
 ### Install
 
@@ -151,11 +174,13 @@ just-terminal/
 │   ├── lib/                 # tauri-bridge, drag-manager, osc-parser, ...
 │   └── types/               # Shared TypeScript types
 ├── src-tauri/               # Rust backend
-│   └── src/
-│       ├── terminal/        # PTY manager, session
-│       ├── explorer/        # FS ops, file watcher, recursive search
-│       ├── git/             # git2-rs: status, log, actions
-│       └── session/         # SQLite persistence
+│   ├── src/
+│   │   ├── terminal/        # PTY manager, session
+│   │   ├── explorer/        # FS ops, file watcher, recursive search
+│   │   ├── git/             # git2-rs: status, log, actions
+│   │   ├── session/         # SQLite persistence
+│   │   └── platform/        # OS detection, shell profiles, shell integration
+│   └── shell-integration/   # bash/zsh scripts that report the CWD (OSC 7)
 └── docs/
     └── ARCHITECTURE.md      # Full architecture guide
 ```

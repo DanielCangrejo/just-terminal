@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use tauri::{AppHandle, State};
 
 use crate::state::AppState;
@@ -6,6 +8,7 @@ use crate::state::AppState;
 pub async fn create_terminal(
     shell: String,
     args: Vec<String>,
+    env: Option<HashMap<String, String>>,
     cwd: String,
     state: State<'_, AppState>,
     app: AppHandle,
@@ -15,7 +18,7 @@ pub async fn create_terminal(
         .lock()
         .map_err(|e| e.to_string())?;
     manager
-        .spawn(shell, args, cwd, app)
+        .spawn(shell, args, env.unwrap_or_default(), cwd, app)
         .map_err(|e| format!("Failed to create terminal: {e}"))
 }
 

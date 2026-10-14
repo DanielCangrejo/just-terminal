@@ -3,7 +3,7 @@ import { Terminal, Copy, Trash2 } from "lucide-react"
 import type { DirEntry } from "@/types/explorer.types"
 import { deleteEntry, writeInput } from "@/lib/tauri-bridge"
 import { useExplorerStore } from "@/store/explorer.store"
-import { useTerminalsStore } from "@/store/terminals.store"
+import { useTerminalsStore, cdCommandFor } from "@/store/terminals.store"
 import { handleCommandError } from "@/lib/error-handler"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
@@ -48,7 +48,7 @@ export function ContextMenu({ entry, x, y, onClose }: Props) {
             icon: Terminal,
             label: "Open Terminal Here",
             action: () => {
-              if (activeId) writeInput(activeId, `cd "${entry.path}"\r`).catch(() => {})
+              if (activeId) writeInput(activeId, cdCommandFor(activeId, entry.path)).catch(() => {})
               onClose()
             },
           },

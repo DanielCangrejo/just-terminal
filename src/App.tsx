@@ -1,14 +1,15 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { MainLayout } from "@/components/layout/MainLayout"
 import { useSessionStore } from "@/store/session.store"
 import { useTerminalsStore, makeSession } from "@/store/terminals.store"
 import { useExplorerStore } from "@/store/explorer.store"
 import { useNotificationStore } from "@/store/notification.store"
+import { getPlatform, usePlatformStore } from "@/store/platform.store"
 import { useKeyBindings } from "@/hooks/useKeyBindings"
 import { useActiveTerminalSync } from "@/hooks/useActiveTerminalSync"
 import { useApplySettings } from "@/components/settings/SettingsPanel"
 import { loadSession, saveSession, createTerminal } from "@/lib/tauri-bridge"
-import { getDefaultShell } from "@/lib/shell-profiles"
+import { getDefaultShell, resolveShell } from "@/lib/shell-profiles"
 import { handleCommandError } from "@/lib/error-handler"
 import type { SessionSnapshot } from "@/types/session.types"
 
@@ -43,6 +44,8 @@ export default function App() {
     useSessionStore()
   const { addSession, sessions } = useTerminalsStore()
   const { setCwd } = useExplorerStore()
+  const loadPlatform = usePlatformStore((s) => s.load)
+  const [ready, setReady] = useState(false)
 
   useKeyBindings()
   useApplySettings()
@@ -56,10 +59,21 @@ export default function App() {
   // Guard against React StrictMode double-invoke
   const sessionInitialized = useRef(false)
 
-  // Restore session on launch
+  // Restore session on launch. Platform info (shells, home dir) must be loaded
+  // first: every terminal is created from it.
   useEffect(() => {
     if (sessionInitialized.current) return
     sessionInitialized.current = true
+    loadPlatform()
+      .then(() => {
+        setReady(true)
+        return restoreSession()
+      })
+      .catch((e) => handleCommandError("App.platform", e))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const restoreSession = () =>
     loadSession()
       .then((snapshot: SessionSnapshot | null) => {
         if (!snapshot) {
@@ -78,11 +92,9 @@ export default function App() {
           useSessionStore.getState().addQuickCommand(c)
         )
         if (snapshot.tabs.length > 0) {
-          const defaultShell = getDefaultShell()
           snapshot.tabs.forEach((tab) => {
-            // Fall back to default shell if saved executable has no path separator (e.g. bare "pwsh.exe")
-            const shell = tab.shell.executable.includes("\\") ? tab.shell : defaultShell
-            createTerminal(shell.executable, shell.args ?? [], tab.cwd)
+            const shell = resolveShell(tab.shell)
+            createTerminal(shell, tab.cwd)
               .then((id) => addSession(makeSession(id, shell, tab.cwd)))
               .catch((e) => handleCommandError("Session.restore", e))
           })
@@ -93,13 +105,11 @@ export default function App() {
         }
       })
       .catch(() => openInitialTerminal())
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const openInitialTerminal = () => {
     const shell = getDefaultShell()
-    const cwd = "C:\\"
-    createTerminal(shell.executable, shell.args ?? [], cwd)
+    const cwd = getPlatform().homeDir
+    createTerminal(shell, cwd)
       .then((id) => {
         addSession(makeSession(id, shell, cwd))
         setCwd(cwd).catch(() => {})
@@ -134,6 +144,8 @@ export default function App() {
     window.addEventListener("beforeunload", handler)
     return () => window.removeEventListener("beforeunload", handler)
   }, [sessions])
+
+  if (!ready) return null
 
   return (
     <>

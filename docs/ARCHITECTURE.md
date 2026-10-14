@@ -48,7 +48,7 @@ Rule of Three — abstract only when duplication appears three times.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  React Frontend (WebView2)                                        │
+│  React Frontend (WebView2 / WebKitGTK / WKWebView)                │
 │                                                                   │
 │  ┌──────────┐ ┌──────────┐ ┌─────────┐ ┌──────────┐ ┌────────┐  │
 │  │ Terminal │ │ Explorer │ │   Git   │ │ Session  │ │Settings│  │
@@ -73,10 +73,11 @@ Rule of Three — abstract only when duplication appears three times.
 │  │(port-pty)│ │notify │  │  search_files   │ │               │    │
 │  └─────┬────┘ └───────┘  └─────────────────┘ └───────────────┘    │
 └────────┼───────────────────────────────────────────────────────────┘
-         │  ConPTY
-┌────────▼────────┐
-│  powershell.exe │  (or CMD / Git Bash / WSL)
-└─────────────────┘
+         │  ConPTY (Windows) / Unix PTY (Linux, macOS)
+┌────────▼─────────────────────┐
+│  powershell.exe / CMD / WSL  │  Windows
+│  $SHELL, zsh, bash, fish ... │  Linux, macOS
+└──────────────────────────────┘
 ```
 
 ### 2.1 Boundary Rules
@@ -163,9 +164,9 @@ src-tauri/src/
 ├── lib.rs           → AppState init, all command registration, setup hook
 ├── state.rs         → AppState struct
 ├── terminal/
-│   ├── pty_manager.rs   → spawn(shell, args, cwd, app), write, resize, kill
+│   ├── pty_manager.rs   → spawn(shell, args, env, cwd, app), write, resize, kill
 │   ├── session.rs       → PtySession struct
-│   └── commands.rs      → create_terminal(shell, args, cwd, ...) etc.
+│   └── commands.rs      → create_terminal(shell, args, env, cwd, ...) etc.
 ├── explorer/
 │   ├── fs_ops.rs        → list_dir, create_file, delete_entry, search_files (recursive)
 │   ├── watcher.rs       → FsWatcher with notify, emits "fs_change"
@@ -174,9 +175,15 @@ src-tauri/src/
 │   ├── repository.rs    → get_status, get_log (CommitInfo with parents/refs), get_branches
 │   ├── actions.rs       → fetch, pull, push, checkout, stash, stash_pop
 │   └── commands.rs      → git_log(path, limit) added in v1.1
-└── session/
-    ├── persistence.rs   → SQLite save/load SessionSnapshot
-    └── commands.rs
+├── session/
+│   ├── persistence.rs   → SQLite save/load SessionSnapshot
+│   └── commands.rs
+└── platform/
+    ├── shells.rs        → detect(): shells available on this OS, with OSC 7 integration
+    ├── integration.rs   → install(): writes shell-integration/ scripts to the app data dir
+    └── commands.rs      → get_platform_info → { os, homeDir, shells }
+
+src-tauri/shell-integration/   → bash/zsh startup scripts (embedded with include_str!)
 ```
 
 ### 4.2 Key Change: `create_terminal` now accepts `args`
@@ -188,6 +195,7 @@ Shell profiles include startup args (including OSC 7 injection). The command sig
 pub async fn create_terminal(
     shell: String,
     args: Vec<String>,    // ← new in v1.1
+    env: Option<HashMap<String, String>>,  // ← extra env vars (e.g. ZDOTDIR for zsh)
     cwd: String,
     state: State<'_, AppState>,
     app: AppHandle,
@@ -200,6 +208,7 @@ pub async fn create_terminal(
 |---|---|---|
 | `search_files` | `explorer` | Recursive file search (depth ≤ 8, max 60 results) |
 | `git_log` | `git` | Returns `CommitInfo[]` with parents + refs for graph |
+| `get_platform_info` | `platform` | OS, home dir and detected shell profiles (first = default) |
 
 ---
 
@@ -212,8 +221,16 @@ import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"   // ← listen is NOT in /core
 
 // Terminal — shell args added in v1.1
-export const createTerminal = (shell: string, args: string[], cwd: string) =>
-  invoke<string>("create_terminal", { shell, args, cwd })
+export const createTerminal = (shell: ShellProfile, cwd: string) =>
+  invoke<string>("create_terminal", {
+    shell: shell.executable,
+    args: shell.args ?? [],
+    env: shell.env ?? null,
+    cwd,
+  })
+
+// Platform — OS, home dir and detected shells, loaded once at startup
+export const getPlatformInfo = () => invoke<PlatformInfo>("get_platform_info", {})
 
 // Explorer — new in v1.1
 export const searchFiles = (root: string, query: string) =>
@@ -367,10 +384,10 @@ The PTY is created **once in `App.tsx`** via `openInitialTerminal()`, not inside
 
 ```
 App.tsx openInitialTerminal():
-  → createTerminal(shell.executable, shell.args, cwd)   [IPC → Rust]
-    → PtyManager.spawn(shell, args, cwd, app)
-      → builds CommandBuilder with args
-      → opens ConPTY pair
+  → createTerminal(shell, cwd)                          [IPC → Rust]
+    → PtyManager.spawn(shell, args, env, cwd, app)
+      → builds CommandBuilder with args + env (falls back to home dir if cwd is gone)
+      → opens PTY pair (ConPTY on Windows)
       → spawns shell process
       → starts read loop thread
       → returns uuid as session ID
@@ -386,27 +403,21 @@ TerminalPane mounts with terminalId = id:
 
 **StrictMode guard**: `App.tsx` uses `sessionInitialized = useRef(false)` to prevent double-invocation of session restore in React 18 StrictMode dev mode.
 
-### 8.2 OSC 7 Injection — Shell Args Approach
+**Platform first**: before restoring the session, `App.tsx` loads `platform.store` (`get_platform_info`). Nothing renders until it is loaded, so `getDefaultShell()` and `getPlatform().homeDir` are always available to components and hooks.
 
-OSC 7 is **not** injected via `writeInput` after shell start (that caused the function definition to be echoed visibly). Instead, it is passed as a `-Command` startup argument:
+### 8.2 OSC 7 Injection — Shell Integration
 
-```typescript
-// lib/shell-profiles.ts
-const PS_OSC7_CMD =
-  `$function:prompt={$p=$ExecutionContext.SessionState.Path.CurrentLocation.Path;` +
-  `[Console]::Write([string][char]27+"]7;file://localhost/"+$p.Replace('\\','/')+[string][char]7);"PS $p> "}`
+OSC 7 is **not** injected via `writeInput` after shell start (that caused the function definition to be echoed visibly). Each shell gets its integration through its startup arguments or environment. Profiles are built by the backend in `platform/shells.rs` and sent to the frontend with `get_platform_info`:
 
-export const SHELL_PROFILES = [
-  {
-    name: "PowerShell",
-    executable: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-    args: ["-NoLogo", "-NoExit", "-Command", PS_OSC7_CMD],
-  },
-  // ...
-]
-```
+| Shell | OS | How OSC 7 is installed |
+|---|---|---|
+| PowerShell / pwsh | all | `-NoExit -Command <prompt function>` |
+| bash | Linux, macOS | `--rcfile shell-integration/bash/integration.bash -i`, which sources `~/.bashrc` and appends to `PROMPT_COMMAND` |
+| zsh | Linux, macOS | `ZDOTDIR=shell-integration/zsh`; each startup file sources the user's own (`PSE_USER_ZDOTDIR`) and the `.zshrc` adds a `precmd` hook. Login shell (`-l`) on macOS |
+| fish | Linux, macOS | `-C <fish_prompt event handler>` |
+| CMD, WSL, others | — | none (explorer does not follow the terminal) |
 
-PowerShell executes the `-Command` silently before entering interactive mode — no echo, no `>>` continuation prompts.
+PowerShell executes the `-Command` silently before entering interactive mode — no echo, no `>>` continuation prompts. The bash/zsh scripts live in `src-tauri/shell-integration/`, are embedded in the binary with `include_str!` and written to the app data dir on every launch (`platform/integration.rs`).
 
 ### 8.3 Resize Handling
 
@@ -443,17 +454,19 @@ return () => {
 ### 9.1 Mechanism
 
 1. Shell startup: OSC 7 prompt function injected via `-Command` arg (see §8.2)
-2. On every prompt display, shell emits: `ESC]7;file://localhost/C:/path\x07`
+2. On every prompt display, shell emits `ESC]7;file://<host>/<path>\x07` — `file://localhost/C:/path` on Windows, `file://my-host/home/me/path` on Linux/macOS. `osc-parser.ts` turns the first into `C:\path` and leaves POSIX paths as they are
 3. `useTerminal` parses this before passing data to `term.write()`
 4. On detection: `updateCwd(terminalId, cwd)` + `explorerStore.setCwd(cwd)`
 
 ### 9.2 Tab Switch Sync
 
-`useActiveTerminalSync` hook in `App.tsx` reacts to `activeId` changes and calls `explorerStore.setCwd(sessions[activeId].cwd)`. New terminals always start at `C:\` — they do not inherit the previous terminal's CWD.
+`useActiveTerminalSync` hook in `App.tsx` reacts to `activeId` changes and calls `explorerStore.setCwd(sessions[activeId].cwd)`. New terminals always start in the user's home directory (`PlatformInfo.homeDir`) — they do not inherit the previous terminal's CWD.
 
 ### 9.3 Explorer → Terminal Navigation
 
-Clicking a Favorite or Recent directory calls `writeInput(activeId, 'cd "path"\r')` to navigate the active terminal. The resulting OSC 7 from the next prompt confirms the navigation in the file tree.
+Clicking a Favorite or Recent directory calls `writeInput(activeId, cdCommandFor(activeId, path))` to navigate the active terminal. `buildCdCommand` (`lib/shell-profiles.ts`) quotes the path for the target shell: `cd -LiteralPath '…'` in PowerShell, `cd /d "…"` in CMD and `cd '…'` in POSIX shells.
+
+Paths are never built with a hardcoded separator: use `lib/path-utils.ts` (`joinPath`, `splitPath`, `basename`, `pathPrefix`), which infers `\` or `/` from the path itself. The resulting OSC 7 from the next prompt confirms the navigation in the file tree.
 
 Folders in the FileTree expand/collapse on single click. **Double-click does NOT cd** — use drag & drop instead (see §10).
 
@@ -507,7 +520,7 @@ WebView2 (Tauri's renderer on Windows) does not reliably return `dataTransfer.ge
 
 ### 11.3 Adding a New Shell Profile
 
-Shell profiles are data in `lib/shell-profiles.ts`. For shells that support OSC 7, include the injection in `args`. For CMD/WSL, omit it.
+Shell profiles are detected in `src-tauri/src/platform/shells.rs` (`detect()`, one implementation per OS). Add the shell there with its OSC 7 integration in `args` or `env`; if it needs a startup script, add it under `src-tauri/shell-integration/` and to `SCRIPTS` in `platform/integration.rs`. Shells without OSC 7 support (CMD, WSL) get no integration. If its `cd` syntax is not POSIX, extend `getShellKind`/`buildCdCommand` in `lib/shell-profiles.ts`.
 
 ---
 
@@ -571,7 +584,7 @@ Keyboard: `Ctrl+=` zoom in, `Ctrl+-` zoom out, `Ctrl+0` reset.
 - [ ] All tests pass (`pnpm test`, `cargo test`)
 
 **Functionality**
-- [ ] Terminal spawns correctly (PowerShell, CMD)
+- [ ] Terminal spawns correctly (Windows: PowerShell, CMD — Linux/macOS: zsh, bash)
 - [ ] OSC 7 CWD sync works (navigate in terminal → explorer updates)
 - [ ] Tab switch → explorer updates to that terminal's CWD
 - [ ] Drag folder → active terminal: executes `cd`
@@ -585,3 +598,4 @@ Keyboard: `Ctrl+=` zoom in, `Ctrl+-` zoom out, `Ctrl+0` reset.
 **Build**
 - [ ] `pnpm tauri build` succeeds
 - [ ] Tested on Windows 10 (build 1903+) and Windows 11
+- [ ] Tested on Linux (WebKitGTK 4.1) and macOS

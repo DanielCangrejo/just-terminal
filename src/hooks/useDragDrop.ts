@@ -1,6 +1,6 @@
 import { useCallback } from "react"
 import { writeInput, createTerminal } from "@/lib/tauri-bridge"
-import { useTerminalsStore, makeSession } from "@/store/terminals.store"
+import { useTerminalsStore, makeSession, cdCommandFor } from "@/store/terminals.store"
 import { useExplorerStore } from "@/store/explorer.store"
 import { getDefaultShell } from "@/lib/shell-profiles"
 import { handleCommandError } from "@/lib/error-handler"
@@ -29,7 +29,7 @@ export function useDragDrop() {
     const entry = dragState.get()
     dragState.end()
     if (!entry?.isDir) return
-    writeInput(ptyId, `cd "${entry.path}"\r`).catch((err) =>
+    writeInput(ptyId, cdCommandFor(ptyId, entry.path)).catch((err) =>
       handleCommandError("DragDrop.cd", err)
     )
   }, [])
@@ -39,7 +39,7 @@ export function useDragDrop() {
     dragState.end()
     if (!entry?.isDir) return
     const shell = getDefaultShell()
-    createTerminal(shell.executable, shell.args ?? [], entry.path)
+    createTerminal(shell, entry.path)
       .then((id) => {
         addSession(makeSession(id, shell, entry.path))
         setCwd(entry.path).catch(() => {})

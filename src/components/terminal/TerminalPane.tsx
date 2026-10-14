@@ -4,7 +4,7 @@ import { DragManager } from "@/lib/drag-manager"
 import { writeInput, createTerminal } from "@/lib/tauri-bridge"
 import { useTerminalsStore, makeSession } from "@/store/terminals.store"
 import { useExplorerStore } from "@/store/explorer.store"
-import { getDefaultShell } from "@/lib/shell-profiles"
+import { buildCdCommand, getDefaultShell } from "@/lib/shell-profiles"
 import { handleCommandError } from "@/lib/error-handler"
 import type { ShellProfile } from "@/types/terminal.types"
 
@@ -28,7 +28,7 @@ export function TerminalPane({ terminalId, shell, initialCwd }: Props) {
   const handleDrop = () => {
     const entry = DragManager.consume()
     if (!entry?.isDir || !ptyIdRef.current) return
-    writeInput(ptyIdRef.current, `cd "${entry.path}"\r`).catch((e) =>
+    writeInput(ptyIdRef.current, buildCdCommand(shell, entry.path)).catch((e) =>
       handleCommandError("TerminalPane.drop", e)
     )
     setDragOver(false)

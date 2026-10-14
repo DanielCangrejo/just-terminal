@@ -7,6 +7,8 @@ import { getDefaultShell } from "@/lib/shell-profiles"
 import { handleCommandError } from "@/lib/error-handler"
 import { SettingsPanel } from "@/components/settings/SettingsPanel"
 import { cn } from "@/lib/utils"
+import { basename } from "@/lib/path-utils"
+import { getPlatform } from "@/store/platform.store"
 
 interface TabContextMenu { id: string; x: number; y: number }
 
@@ -31,8 +33,9 @@ export function TerminalTabBar() {
 
   const openNewTab = () => {
     const shell = getDefaultShell()
-    createTerminal(shell.executable, shell.args ?? [], "C:\\")
-      .then((id) => addSession(makeSession(id, shell, "C:\\")))
+    const { homeDir } = getPlatform()
+    createTerminal(shell, homeDir)
+      .then((id) => addSession(makeSession(id, shell, homeDir)))
       .catch((e) => handleCommandError("TabBar.newTab", e))
   }
 
@@ -107,7 +110,7 @@ export function TerminalTabBar() {
           const isRenaming = renamingId === id
           const isDragging = dragId === id
           const isDropTarget = dropTargetId === id && dragId !== id
-          const folder = session.cwd?.split(/[/\\]/).filter(Boolean).pop() ?? "~"
+          const folder = (session.cwd && basename(session.cwd)) ?? "~"
 
           return (
             <div key={id}>

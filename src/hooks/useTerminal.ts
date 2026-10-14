@@ -14,6 +14,7 @@ import { extractCwdFromOsc7 } from "@/lib/osc-parser"
 import { useTerminalsStore } from "@/store/terminals.store"
 import { useExplorerStore } from "@/store/explorer.store"
 import { useSessionStore } from "@/store/session.store"
+import { getPlatform } from "@/store/platform.store"
 import { handleCommandError } from "@/lib/error-handler"
 import type { ShellProfile } from "@/types/terminal.types"
 
@@ -46,7 +47,7 @@ export function useTerminal(
 
     ptyIdRef.current = terminalId
 
-    const { term, fitAddon } = createXterm(isDark)
+    const { term, fitAddon } = createXterm(isDark, getPlatform().os === "windows")
     termRef.current = term
     fitRef.current = fitAddon
 
@@ -102,7 +103,7 @@ export function useTerminal(
         const disposable = term.onData(() => {
           disposable.dispose()
           const cwd = sessions[terminalId]?.cwd ?? initialCwd
-          createTerminal(shell.executable, shell.args ?? [], cwd)
+          createTerminal(shell, cwd)
             .then((newId) => {
               ptyIdRef.current = newId
             })

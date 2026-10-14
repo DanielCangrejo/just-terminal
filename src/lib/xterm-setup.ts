@@ -63,18 +63,22 @@ export function getXtermTheme(isDark: boolean) {
   return isDark ? getDarkTheme() : getLightTheme()
 }
 
-export function createXterm(isDark: boolean, fontSize = 14, scrollback = 10000): XtermBundle {
+export function createXterm(
+  isDark: boolean,
+  isWindows: boolean,
+  fontSize = 14,
+  scrollback = 10000
+): XtermBundle {
   const term = new Terminal({
     cursorBlink: true,
-    fontFamily: "Cascadia Code, Consolas, monospace",
+    fontFamily:
+      'Cascadia Code, Consolas, Menlo, "SF Mono", "DejaVu Sans Mono", "Liberation Mono", monospace',
     fontSize,
     theme: getXtermTheme(isDark),
     allowTransparency: false,
     scrollback,
-    windowsPty: {
-      backend: "conpty",
-      buildNumber: 22000,
-    },
+    // ConPTY reflow heuristics; must not be set for Unix PTYs
+    windowsPty: isWindows ? { backend: "conpty", buildNumber: 22000 } : undefined,
   })
 
   const fitAddon = new FitAddon()

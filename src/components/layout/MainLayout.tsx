@@ -40,7 +40,7 @@ export function MainLayout() {
     setEmptyDragOver(false)
     if (!entry?.isDir) return
     const shell = getDefaultShell()
-    createTerminal(shell.executable, shell.args ?? [], entry.path)
+    createTerminal(shell, entry.path)
       .then((id) => {
         addSession(makeSession(id, shell, entry.path))
         setCwd(entry.path).catch(() => {})

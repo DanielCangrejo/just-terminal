@@ -1,5 +1,6 @@
 pub mod explorer;
 pub mod git;
+pub mod platform;
 pub mod session;
 pub mod state;
 pub mod terminal;
@@ -23,11 +24,14 @@ pub fn run() {
                 .map_err(|e| format!("Failed to open database: {e}"))?;
             session::persistence::init_db(&db)
                 .map_err(|e| format!("Failed to init database: {e}"))?;
+            let shell_integration_dir = platform::integration::install(&app_data_dir)
+                .map_err(|e| format!("Failed to install shell integration: {e}"))?;
 
             let state = state::AppState {
                 pty_manager: Arc::new(Mutex::new(terminal::pty_manager::PtyManager::new())),
                 fs_watcher: Arc::new(Mutex::new(explorer::watcher::FsWatcher::new())),
                 db: Arc::new(Mutex::new(db)),
+                shell_integration_dir,
             };
             app.manage(state);
             Ok(())
@@ -58,6 +62,7 @@ pub fn run() {
             git::commands::git_stash_pop,
             session::commands::save_session,
             session::commands::load_session,
+            platform::commands::get_platform_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

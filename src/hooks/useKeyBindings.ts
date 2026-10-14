@@ -7,6 +7,7 @@ import { createTerminal } from "@/lib/tauri-bridge"
 import { makeSession } from "@/store/terminals.store"
 import { getDefaultShell } from "@/lib/shell-profiles"
 import { handleCommandError } from "@/lib/error-handler"
+import { getPlatform } from "@/store/platform.store"
 
 interface Binding {
   ctrl?: boolean
@@ -33,8 +34,9 @@ export function useKeyBindings() {
         key: "t",
         action: () => {
           const shell = getDefaultShell()
-          createTerminal(shell.executable, shell.args ?? [], "C:\\")
-            .then((id) => addSession(makeSession(id, shell, "C:\\")))
+          const { homeDir } = getPlatform()
+          createTerminal(shell, homeDir)
+            .then((id) => addSession(makeSession(id, shell, homeDir)))
             .catch((e) => handleCommandError("KeyBinding.newTab", e))
         },
       },

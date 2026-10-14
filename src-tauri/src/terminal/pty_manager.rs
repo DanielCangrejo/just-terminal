@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 use super::session::PtySession;
@@ -20,7 +20,14 @@ impl PtyManager {
         }
     }
 
-    pub fn spawn(&mut self, shell: String, args: Vec<String>, cwd: String, app: AppHandle) -> Result<String> {
+    pub fn spawn(
+        &mut self,
+        shell: String,
+        args: Vec<String>,
+        env: HashMap<String, String>,
+        cwd: String,
+        app: AppHandle,
+    ) -> Result<String> {
         let id = Uuid::new_v4().to_string();
         let pty_system = native_pty_system();
 
@@ -31,11 +38,32 @@ impl PtyManager {
             pixel_height: 0,
         })?;
 
+        // A restored session may point at a deleted folder or at a path from
+        // another OS (e.g. a Windows path on Linux): start in the home dir instead.
+        let cwd = if std::path::Path::new(&cwd).is_dir() {
+            cwd
+        } else {
+            app.path()
+                .home_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or(cwd)
+        };
+
         let mut cmd = CommandBuilder::new(&shell);
         for arg in &args {
             cmd.arg(arg);
         }
         cmd.cwd(&cwd);
+        // Unix shells and TUI apps pick colors and key handling from TERM.
+        // A GUI launch (dock, .desktop file) usually leaves it unset.
+        #[cfg(unix)]
+        {
+            cmd.env("TERM", "xterm-256color");
+            cmd.env("COLORTERM", "truecolor");
+        }
+        for (key, value) in &env {
+            cmd.env(key, value);
+        }
 
         let _child = pair.slave.spawn_command(cmd)?;
 

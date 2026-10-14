@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { ShellProfile, SplitConfig, TerminalSession } from "@/types/terminal.types"
+import { buildCdCommand, getDefaultShell } from "@/lib/shell-profiles"
 
 interface TerminalsState {
   sessions: Record<string, TerminalSession>
@@ -83,4 +84,10 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 
 export function makeSession(id: string, shell: ShellProfile, cwd: string): TerminalSession {
   return { id, shell, cwd, title: shell.name, createdAt: Date.now() }
+}
+
+/** The `cd` line for `path`, in the syntax of the shell running in session `id`. */
+export function cdCommandFor(id: string, path: string): string {
+  const shell = useTerminalsStore.getState().sessions[id]?.shell ?? getDefaultShell()
+  return buildCdCommand(shell, path)
 }

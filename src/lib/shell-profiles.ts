@@ -1,36 +1,43 @@
 import type { ShellProfile } from "@/types/terminal.types"
+import { getPlatform } from "@/store/platform.store"
 
-// Injects OSC 7 prompt function via -Command arg so it runs silently at startup
-// (injecting via writeInput echoes the text visibly in the terminal)
-const PS_OSC7_CMD =
-  `$function:prompt={$p=$ExecutionContext.SessionState.Path.CurrentLocation.Path;[Console]::Write([string][char]27+"]7;file://localhost/"+$p.Replace('\\','/')+[string][char]7);"PS $p> "}`
+// Shell profiles are detected by the Rust backend (platform/shells.rs), which
+// also attaches the OSC 7 integration for each shell. See ARCHITECTURE.md §8.2.
 
-export const SHELL_PROFILES: ShellProfile[] = [
-  {
-    name: "PowerShell 7",
-    executable: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
-    args: ["-NoLogo", "-NoExit", "-Command", PS_OSC7_CMD],
-  },
-  {
-    name: "PowerShell",
-    executable: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-    args: ["-NoLogo", "-NoExit", "-Command", PS_OSC7_CMD],
-  },
-  { name: "CMD", executable: "C:\\Windows\\System32\\cmd.exe", args: [] },
-  { name: "Git Bash", executable: "bash.exe", args: ["--login", "-i"] },
-  { name: "WSL", executable: "wsl.exe", args: [] },
-]
+export type ShellKind = "powershell" | "cmd" | "posix"
+
+export function getShellProfiles(): ShellProfile[] {
+  return getPlatform().shells
+}
 
 export function getDefaultShell(): ShellProfile {
-  // Return PS7 if available, fall back to Windows PowerShell
-  return SHELL_PROFILES[1]
+  return getShellProfiles()[0]
 }
 
-export function findShellByName(name: string): ShellProfile | undefined {
-  return SHELL_PROFILES.find((s) => s.name === name)
+/**
+ * Maps a shell saved in a previous session to one available now. Saved profiles
+ * may come from another machine or an older version, so they are matched by name
+ * and the current profile (with up-to-date args and env) is returned.
+ */
+export function resolveShell(saved: ShellProfile | undefined): ShellProfile {
+  return getShellProfiles().find((s) => s.name === saved?.name) ?? getDefaultShell()
 }
 
-export function isOsc7Shell(shell: ShellProfile): boolean {
-  const exe = shell.executable.toLowerCase()
-  return exe.includes("pwsh") || exe.includes("powershell")
+export function getShellKind(shell: ShellProfile): ShellKind {
+  const exe = (shell.executable.split(/[/\\]/).pop() ?? "").toLowerCase()
+  if (exe.startsWith("pwsh") || exe.startsWith("powershell")) return "powershell"
+  if (exe === "cmd.exe" || exe === "cmd") return "cmd"
+  return "posix"
+}
+
+/** Builds the line to type into a shell to change its directory to `path`. */
+export function buildCdCommand(shell: ShellProfile, path: string): string {
+  switch (getShellKind(shell)) {
+    case "powershell":
+      return `cd -LiteralPath '${path.replace(/'/g, "''")}'\r`
+    case "cmd":
+      return `cd /d "${path}"\r`
+    case "posix":
+      return `cd '${path.replace(/'/g, `'\\''`)}'\r`
+  }
 }

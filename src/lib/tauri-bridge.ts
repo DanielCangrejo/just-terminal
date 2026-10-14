@@ -2,14 +2,21 @@ import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import type { DirEntry, FsChangeEvent } from "@/types/explorer.types"
 import type { CommitInfo, GitStatus } from "@/types/git.types"
+import type { PlatformInfo } from "@/types/platform.types"
 import type { SessionSnapshot } from "@/types/session.types"
+import type { ShellProfile } from "@/types/terminal.types"
 
 export type UnlistenFn = () => void
 
 // ── Terminal ──────────────────────────────────────────────────────────────────
 
-export const createTerminal = (shell: string, args: string[], cwd: string) =>
-  invoke<string>("create_terminal", { shell, args, cwd })
+export const createTerminal = (shell: ShellProfile, cwd: string) =>
+  invoke<string>("create_terminal", {
+    shell: shell.executable,
+    args: shell.args ?? [],
+    env: shell.env ?? null,
+    cwd,
+  })
 
 export const writeInput = (id: string, data: string) =>
   invoke<void>("write_pty_input", { id, data })
@@ -95,3 +102,7 @@ export const saveSession = (session: SessionSnapshot) =>
   invoke<void>("save_session", { session })
 
 export const loadSession = () => invoke<SessionSnapshot | null>("load_session", {})
+
+// ── Platform ──────────────────────────────────────────────────────────────────
+
+export const getPlatformInfo = () => invoke<PlatformInfo>("get_platform_info", {})

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::explorer::watcher::FsWatcher;
@@ -7,6 +8,7 @@ pub struct AppState {
     pub pty_manager: Arc<Mutex<PtyManager>>,
     pub fs_watcher: Arc<Mutex<FsWatcher>>,
     pub db: Arc<Mutex<rusqlite::Connection>>,
+    pub shell_integration_dir: PathBuf,
 }
 
 unsafe impl Send for AppState {}

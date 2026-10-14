@@ -1,7 +1,7 @@
 import { useTerminalsStore } from "@/store/terminals.store"
 import { TerminalPane } from "./TerminalPane"
 import { SplitPane } from "@/components/layout/SplitPane"
-import { getDefaultShell } from "@/lib/shell-profiles"
+import { resolveShell } from "@/lib/shell-profiles"
 
 interface Props {
   tabId: string
@@ -13,7 +13,7 @@ export function TerminalTab({ tabId }: Props) {
 
   if (!session) return null
 
-  const shell = session.shell?.executable ? session.shell : getDefaultShell()
+  const shell = session.shell?.executable ? session.shell : resolveShell(session.shell)
 
   if (split?.direction && split.paneIds) {
     return (
