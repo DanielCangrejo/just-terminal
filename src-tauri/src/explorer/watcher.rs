@@ -26,6 +26,9 @@ impl FsWatcher {
     }
 
     pub fn watch(&mut self, path: String, app: AppHandle) -> notify::Result<()> {
+        if self.watchers.contains_key(&path) {
+            return Ok(());
+        }
         let app_clone = app.clone();
         let path_clone = path.clone();
 
@@ -39,7 +42,10 @@ impl FsWatcher {
             Config::default().with_poll_interval(Duration::from_millis(100)),
         )?;
 
-        watcher.watch(Path::new(&path_clone), RecursiveMode::Recursive)?;
+        // Only the listed directory: the explorer refreshes the CWD listing, and
+        // expanded subfolders load on demand. A recursive watch on Linux (inotify)
+        // adds one watch per subdirectory, e.g. ~88k for a home folder.
+        watcher.watch(Path::new(&path_clone), RecursiveMode::NonRecursive)?;
         self.watchers.insert(path, watcher);
         Ok(())
     }

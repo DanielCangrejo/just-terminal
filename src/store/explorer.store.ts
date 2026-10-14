@@ -34,7 +34,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         await unwatchDir(watchedPath).catch(() => {})
       }
       const entries = await listDir(path, get().showHidden)
-      await watchDir(path).catch(() => {})
+      // setCwd runs on every prompt (OSC 7): only start a watcher when the dir changes
+      if (watchedPath !== path) await watchDir(path).catch(() => {})
       set({ entries, isLoading: false, watchedPath: path })
     } catch (e) {
       handleCommandError("Explorer.setCwd", e)
